@@ -1,16 +1,15 @@
-import json
 import os
 
 from dotenv import load_dotenv
 
 from langchain_community.chat_models import GigaChat
 
-from data_processing import flatten_data, make_chunks
+from src.data.data_processing import load_and_preprocess_data
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough
 
-from hierarchical_retrieval import HierarchicalRetrieval
+from src.retriever import HierarchicalRetriever
 
 load_dotenv()
 
@@ -18,11 +17,11 @@ giga_key = os.getenv("API_KEY")
 
 
 class RAG:
-    def __init__(self, data):
-        self.retriever = HierarchicalRetrieval(data)
+    def __init__(self, data, model_name="GigaChat"):
+        self.retriever = HierarchicalRetriever(data)
         self.llm = GigaChat(
             credentials=giga_key,
-            model="GigaChat-Pro",
+            model=model_name,
             timeout=30,
             verify_ssl_certs=False,
             profanity_check=False,
@@ -47,12 +46,14 @@ class RAG:
             6. Если в контексте недостаточно информации по какому-то аспекту вопроса - используй свои знания, но укажи это.
 
             Стремись дать максимально полезный, информативный и практичный ответ, комбинируя все доступные знания.
+            
+            Если вопрос пользователя не предполагает поиска, например пользователь написал просто "Привет!", можешь не опираться на информацию в контексте.
 
             Ответ:"""
         )
         self.rag_chain = (
             {
-                "context": RunnableLambda(self.retrieve),
+                "context": RunnablePassthrough(),
                 "question": RunnablePassthrough(),
             }
             | self.prompt_template
@@ -60,24 +61,16 @@ class RAG:
         )
 
     def retrieve(self, query):
-        return self.retriever.retrieve(query["question"])
+        return self.retriever.retrieve(query)
 
     def run(self, query):
-        return self.rag_chain.invoke({"question": query}).content
+        context = self.retrieve(query)
+        result = self.rag_chain.invoke({"question": query, "context": context})
+        return {"response": result.content, "retrieved_chunks": context}
 
 
 if __name__ == "__main__":
-    paths = os.listdir("./data")
-    data = []
-    for path in paths:
-        with open(f"./data/{path}") as f:
-            data.append(json.load(f))
-
-    flat_data = flatten_data(data)
-    chunked_data = make_chunks(flat_data)
-    assert all(
-        len(chunk) < 2000 for chunks in chunked_data.values() for chunk in chunks
-    )
+    chunked_data = load_and_preprocess_data(datadir="./data")
 
     rag = RAG(chunked_data)
     print(rag.run("Что посмотреть в Шанхае?"))

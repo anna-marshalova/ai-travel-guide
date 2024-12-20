@@ -1,3 +1,4 @@
+import os
 import re
 import json
 
@@ -61,17 +62,22 @@ def make_chunks(data, chunk_size=1000, chunk_overlap=200):
             chunked_data[title] = chunks
     return chunked_data
 
-
-if __name__ == "__main__":
-    paths = ["big_cities_data.json"]
+def load_and_preprocess_data(datadir=None, paths=[]):
+    assert datadir or paths, "Please provide `datadir` or List[str] of paths"
     data = []
+    if len(paths) == 0:
+        paths = [os.path.join(datadir, fname) for fname in os.listdir(datadir) if fname.endswith(".json")]
     for path in paths:
         with open(path) as f:
             data.append(json.load(f))
 
     flat_data = flatten_data(data)
-    print(flat_data)
     chunked_data = make_chunks(flat_data)
+    return chunked_data
+
+if __name__ == "__main__":
+    paths = ["./data/big_cities_data.json"]
+    chunked_data = load_and_preprocess_data(paths=paths)
     assert all(
         len(chunk) < 2000 for chunks in chunked_data.values() for chunk in chunks
     )
